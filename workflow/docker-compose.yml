@@ -13,6 +13,12 @@ x-airflow-common:
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__ENABLE_XCOM_PICKLING: 'true'
+    AIRFLOW__SMTP__SMTP_HOST: 'smtp.googlemail.com'
+    AIRFLOW__SMTP__SMTP_USER: 'XXXXXXXXXXXXXX'
+    AIRFLOW__SMTP__SMTP_PORT: '587'
+    AIRFLOW__SMTP__SMTP_PASSWORD: 'XXXXXXXXXXXXX'
+    AIRFLOW__SMTP__SMTP_MAIL_FROM: 'XXXXXXXXXXXXXXXXX'
+
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs

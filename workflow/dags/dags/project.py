@@ -11,7 +11,7 @@ try:
     from airflow.utils.trigger_rule import TriggerRule
 
     from airflow.utils.task_group import TaskGroup
-
+    from common.awshelper import AWSS3
     import pandas as pd
 
     print("All Dag modules are ok ......")
@@ -27,68 +27,66 @@ default_args = {
     "retries": 1,
     "retry_delay": timedelta(minutes=1),
     'email': ['shahsoumil519@gmail.com'],
-    'email_on_failure': False,
+    'email_on_failure': True,
     'email_on_retry': False,
 }
-dag  = DAG(dag_id="project", schedule_interval="@once", default_args=default_args, catchup=False)
+dag = DAG(dag_id="project", schedule_interval="@once", default_args=default_args, catchup=False)
 # ================================================
 
 
-def read_file(**context):
-    path = os.path.join(os.getcwd(), "dags/common/netflix_titles.csv")
-    df = pd.read_csv(path)
-    print(df.columns)
-    context['ti'].xcom_push(key='df', value=df)
+def crawl_files(**context):
+    path = os.path.join(os.getcwd(), "dags/common")
+    os.chdir(path)
+
+    files = []
+    for x in os.listdir():
+        if ".csv" in x:
+            files.append(x)
+
+    context['ti'].xcom_push(key='files', value=files)
 
 
-def process_type(**context):
+def upload_s3(**context):
 
-    df = context.get("ti").xcom_pull(key="df")
-    # df = pd.DataFrame(data=df)
+    """Upload on AWS S3 """
 
-    df["type"]  = df['type'].apply(lambda x:  'ok')
-    context['ti'].xcom_push(key='type', value=df["type"].to_list())
-    return df
+    files = context.get("ti").xcom_pull(key="files")
+    aws_helper  = AWSS3()
 
-def process_director(**context):
-    df = context.get("ti").xcom_pull(key="df")
-    # df = pd.DataFrame(data=df)
-    df["director"]  = df['director'].apply(lambda x:  'ok')
-    context['ti'].xcom_push(key='director', value= df["director"].to_list())
-    return df
+    try:
+        path = os.path.join(os.getcwd(), "dags/common")
+        os.chdir(path)
+        print("Good")
+    except Exception as e:
+        print('Error : {} '.format(e))
 
-def process_title(**context):
+    for file in files:
+        with open(file, "rb") as f:
+            try:
+                data = f.read()
+                bucket_path = "soumil/{}".format(file)
+                aws_helper.put_files(Key=bucket_path, Body=data)
+                print("File : {} Uploaded ".format(file))
+            except Exception as e:
+                print("Failed to upload File :{} ".format(e))
 
-    df = context.get("ti").xcom_pull(key="df")
-    # df = pd.DataFrame(data=df)
-    df["title"]  = df['title'].apply(lambda x:  'ok')
-    context['ti'].xcom_push(key='title', value=df["title"].to_list())
-    return df
 
-
-def complete_task(**context):
-
-    df = context.get("ti").xcom_pull(key="df")
-
-    df["type"] = context.get("ti").xcom_pull(key="type")
-    df["title"] = context.get("ti").xcom_pull(key="title")
-    df["director"] = context.get("ti").xcom_pull(key="director")
-
-    path = os.path.join(os.getcwd(), "dags/common/process.csv")
-    df.to_csv(path)
+def trigger_glue(**context):
+    pass
 
 
 with DAG(dag_id="project", schedule_interval="@once", default_args=default_args, catchup=False) as dag:
 
-    read_file = PythonOperator(task_id="read_file",python_callable=read_file,provide_context=True,)
+    crawl_files = PythonOperator(task_id="crawl_files",python_callable=crawl_files,provide_context=True,)
+    upload_s3 = PythonOperator(task_id="upload_s3",python_callable=upload_s3,provide_context=True,)
+    trigger_glue = PythonOperator(task_id="trigger_glue",python_callable=trigger_glue,provide_context=True,)
 
-    with TaskGroup("processing_tasks") as processing_tasks:
-        process_title = PythonOperator(task_id="process_title",python_callable=process_title,provide_context=True,)
-        process_director = PythonOperator(task_id="process_director",python_callable=process_director,provide_context=True,)
-        process_type = PythonOperator(task_id="process_type",python_callable=process_type,provide_context=True,)
+    email = EmailOperator(
+        task_id='send_email',
+        to='XXXXXXXXXXXXXXX',
+        subject='Airflow Alert',
+        html_content=""" <h3>ETL Pipeline complete </h3> """,
+    )
 
-    complete_task = PythonOperator(task_id="complete_task",python_callable=complete_task,provide_context=True,)
+crawl_files >> upload_s3 >> trigger_glue >> email
 
-
-read_file >> processing_tasks
-processing_tasks >> complete_task
